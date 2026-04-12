@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac } from 'crypto';
-import { writeFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { put, list, del } from '@vercel/blob';
+
+const MAX_STORED_IMAGES = 3;
 
 function verifyToken(token: string, adminPassword: string): boolean {
   const expected = createHmac('sha256', 'certgen_salt_v1').update(adminPassword).digest('hex');
@@ -58,12 +59,22 @@ export async function POST(req: NextRequest) {
     // Sanitize filename — only alphanumeric, dots, dashes
     const ext = file.name.split('.').pop()?.replace(/[^a-zA-Z0-9]/g, '') || 'jpg';
     const fileName = `template-${Date.now()}.${ext}`;
-    const uploadDir = path.join(process.cwd(), 'public', 'uploads');
 
-    await mkdir(uploadDir, { recursive: true });
-    await writeFile(path.join(uploadDir, fileName), buffer);
+    // Enforce max stored images: delete oldest if at or above limit
+    const { blobs } = await list({ prefix: 'template-' });
+    if (blobs.length >= MAX_STORED_IMAGES) {
+      // Sort ascending by uploadedAt so oldest is first
+      blobs.sort((a, b) => new Date(a.uploadedAt).getTime() - new Date(b.uploadedAt).getTime());
+      const toDelete = blobs.slice(0, blobs.length - MAX_STORED_IMAGES + 1);
+      await Promise.all(toDelete.map((b) => del(b.url)));
+    }
 
-    return NextResponse.json({ url: `/uploads/${fileName}` });
+    const blob = await put(fileName, buffer, {
+      access: 'public',
+      contentType: file.type,
+    });
+
+    return NextResponse.json({ url: blob.url });
   } catch (err) {
     console.error('Upload error:', err);
     return NextResponse.json(
