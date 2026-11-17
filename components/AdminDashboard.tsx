@@ -98,18 +98,19 @@ export default function AdminDashboard({ onLogout }: { onLogout: () => void }) {
     setUploading(true);
     setUploadError('');
 
-    const token = sessionStorage.getItem('admin_token') || '';
     const formData = new FormData();
     formData.append('file', file);
 
     try {
+      // The admin session cookie is sent automatically (same origin).
       const res = await fetch('/api/upload', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
       const data = await res.json();
-      if (data.url) {
+      if (res.status === 401) {
+        setUploadError('Your session has expired. Log out and sign in again.');
+      } else if (data.url) {
         updateSetting('templateUrl', data.url);
         setCanvasError('');
       } else {

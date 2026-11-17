@@ -13,12 +13,21 @@ export default function AdminLogin() {
   const [authenticated, setAuthenticated] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
 
+  // The session lives in an HttpOnly cookie, so ask the server whether we're signed in.
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = sessionStorage.getItem('admin_auth');
-      if (stored === 'true') setAuthenticated(true);
-    }
-    setCheckingSession(false);
+    let cancelled = false;
+    fetch('/api/auth', { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data.authenticated === true) setAuthenticated(true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setCheckingSession(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -35,12 +44,13 @@ export default function AdminLogin() {
 
       const data = await res.json();
 
-      if (data.success) {
-        sessionStorage.setItem('admin_auth', 'true');
-        sessionStorage.setItem('admin_token', data.token);
+      if (res.ok && data.success) {
+        setPassword('');
         setAuthenticated(true);
-      } else {
+      } else if (res.status === 401) {
         setError('Invalid password. Please try again.');
+      } else {
+        setError(data.error || 'Sign-in failed. Please try again.');
       }
     } catch {
       setError('Connection error. Please try again.');
@@ -49,9 +59,12 @@ export default function AdminLogin() {
     }
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem('admin_auth');
-    sessionStorage.removeItem('admin_token');
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth', { method: 'DELETE' });
+    } catch {
+      // Even if the request fails, drop back to the login screen.
+    }
     setAuthenticated(false);
     setPassword('');
   };
